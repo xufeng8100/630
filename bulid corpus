@@ -129,10 +129,7 @@ f.close()
 
 from nltk.corpus import twitter_samples
 strings = twitter_samples.strings('tweets.20150430-223406.json')
-a=0
 with open('twitter corpus.txt', 'w') as f:
       for string in strings[:30000]:
            f.write(string+'\n')
-           a += 1
-           print a
 f.close()               
