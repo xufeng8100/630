@@ -1,64 +1,69 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 import jieba
-from keras.preprocessing import sequence
+
+pos = pd.read_excel('terrorist samplexls.xls', header=None)
+pos['label'] = 1
+neg = pd.read_excel('twitter samplexls.xls', header=None)
+neg['label'] = 0
+all_ = pos.append(neg, ignore_index=True)
+all_['words'] = all_[0].apply(lambda s: list(jieba.cut(s)))
+
+maxlen = 100 
+min_count = 5 
+
+content = []
+for i in all_['words']:
+	content.extend(i)
+
+abc = pd.Series(content).value_counts()
+abc = abc[abc >= min_count]
+abc[:] = range(1, len(abc)+1)
+abc[''] = 0 
+word_set = set(abc.index)
+
+def doc2num(s, maxlen):
+    s = [i for i in s if i in word_set]
+    s = s[:maxlen] + ['']*max(0, maxlen-len(s))
+    return list(abc[s])
+
+all_['doc2num'] = all_['words'].apply(lambda s: doc2num(s, maxlen))
+
+
+idx =[ i for i in range(len(all_))]
+np.random.shuffle(idx)
+all_ = all_.loc[idx]
+
+
+x = np.array(list(all_['doc2num']))
+y = np.array(list(all_['label']))
+y = y.reshape((-1,1)) 
+
+
 from keras.models import Sequential
-from keras.layers.core import Dense,Dropout,Activation
-from keras.layers.embeddings import Embedding
-from keras.layers.recurrent import LSTM
+from keras.layers import Dense, Activation, Dropout, Embedding
+from keras.layers import LSTM
 
-neg=pd.read_excel('terrorist corpusxls.xls',header=None,index=None)
-pos=pd.read_excel('twitter corpusxls.xls',header=None,index=None) 
-pos['mark']=1
-neg['mark']=0 
-pn=pd.concat([pos,neg],ignore_index=True) 
-neglen=len(neg)
-poslen=len(pos) 
-cw = lambda x: list(jieba.cut(x))  
-pn['words'] = pn[0].apply(cw)
 
-comment = pd.read_excel('sumxls.xls')  
-# comment = pd.read_csv('a.csv', encoding='utf-8')
-comment = comment[comment['rateContent'].notnull()]  
-comment['words'] = comment['rateContent'].apply(cw)  
-
-d2v_train = pd.concat([pn['words'], comment['words']], ignore_index=True)
-
-w = []  
-for i in d2v_train:
-    w.extend(i)
-
-dict = pd.DataFrame(pd.Series(w).value_counts())  
-del w, d2v_train
-dict['id'] = list(range(1, len(dict) + 1))
-
-get_sent = lambda x: list(dict['id'][x])
-pn['sent'] = pn['words'].apply(get_sent)
-
-maxlen = 50
-
-print("Pad sequences (samples x time)")
-pn['sent'] = list(sequence.pad_sequences(pn['sent'], maxlen=maxlen))
-
-x = np.array(list(pn['sent']))[::2]  
-y = np.array(list(pn['mark']))[::2]
-xt = np.array(list(pn['sent']))[1::2]  
-yt = np.array(list(pn['mark']))[1::2]
-xa = np.array(list(pn['sent']))  
-ya = np.array(list(pn['mark']))
-
-print('Build model...')
 model = Sequential()
-model.add(Embedding(input_dim=len(dict)+1, output_dim=256, input_length=maxlen))
-model.add(LSTM(128)) # try using a GRU instead, for fun
+model.add(Embedding(len(abc), 256, input_length=maxlen))
+model.add(LSTM(128))
 model.add(Dropout(0.5))
 model.add(Dense(1))
 model.add(Activation('sigmoid'))
-
 model.compile(loss='binary_crossentropy',
               optimizer='adam',
               metrics=['accuracy'])
 
-print('Fit model...')
-model.fit(x, y, batch_size=32, nb_epoch=4)  
-model.evaluate(xt, yt, batch_size = 32)
+batch_size = 128
+train_num = 60000
+# model.save_weights('LSTMmodel_w')
+# model.load_weights('LSTMmodel_w')
+model.fit(x[:train_num], y[:train_num], batch_size = batch_size, nb_epoch=1)
+
+model.evaluate(x[train_num:], y[train_num:], batch_size = batch_size)
+
+def predict_one(s):
+    s = np.array(doc2num(list(jieba.cut(s)), maxlen))
+    s = s.reshape((1, s.shape[0]))
+    return model.predict_classes(s, verbose=0)[0][0]
